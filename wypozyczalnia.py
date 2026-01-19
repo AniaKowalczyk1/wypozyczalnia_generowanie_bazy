@@ -3,7 +3,7 @@ from faker import Faker
 import psycopg2
 from psycopg2.extras import execute_batch
 from datetime import timedelta, date
-
+import requests
 fake = Faker("pl_PL")
 
 DB_CONFIG = {
@@ -25,9 +25,11 @@ MAX_LEN = {
     "tytul": 255,
     "gatunek": 50,
     "rezyser": 100,
-    "metoda": 50
+    "metoda": 50,
+    "url": 500,
+    "opis": 500,
+    "plakat": 500
 }
-
 def truncate(s, max_len):
     return s[:max_len]
 
@@ -106,21 +108,125 @@ execute_batch(cur,
 # ---------------------------
 # FILMY
 # ---------------------------
-gatunki = ["Akcja", "Dramat", "Komedia", "Sci-Fi", "Horror"]
-filmy = [(truncate(fake.sentence(nb_words=3), MAX_LEN["tytul"]),
-          truncate(random.choice(gatunki), MAX_LEN["gatunek"]),
-          random.randint(1985, 2024),
-          truncate(fake.first_name() + " " + fake.last_name(), MAX_LEN["rezyser"]),
-          truncate(fake.text(max_nb_chars=200), 200))
-         for _ in range(2000)]
+OMDB_API_KEY = "5b23ce66"
+NUM_MOVIES = 200
+SEARCH_TERMS = [
+    "Star", "War", "Avengers", "Batman", "Spider", "Harry", "Lord", "Game", "Ring",
+    "Mission", "Jurassic", "Matrix", "Fast", "Toy", "Deadpool", "Guardians",
+    "Iron", "Man", "Captain", "America", "Hulk", "Thor", "Black", "Widow",
+    "Doctor", "Strange", "Wolverine", "X", "Men", "Fantastic", "Beasts",
+    "Pirates", "Caribbean", "Transformers", "Minions", "Shrek", "Frozen",
+    "Inception", "Interstellar", "Gladiator", "Titanic", "Avatar", "Joker",
+    "Suicide", "Squad", "Wonder", "Woman", "Hobbit", "Dune",
+    "Cinderella", "Aladdin", "Beauty", "Beast", "Mulan", "Venom",
+    "Morbius", "Black", "Panther", "Ant-Man", "Galaxy", "Doctor", "Who",
+    "Sherlock", "Holmes", "Indiana", "Jones", "Starship", "Troopers", "Edge",
+    "Tomorrow", "Kingsman", "Secret", "Service", "Maze", "Runner", "Divergent",
+    "Hunger", "Games", "Catching", "Fire", "Mockingjay", "Frozen", "Elsa",
+    "Anna", "Moana", "Rapunzel", "Tangled", "Coco", "Soul", "Onward",
+    "Luca", "Raya", "Last", "Dragon", "Encanto", "Turning", "Red", "Lightyear",
+    "Toy", "Story", "Finding", "Nemo", "Finding", "Dory", "Cars", "Planes",
+    "Hotel", "Transylvania", "Despicable", "Me", "Minions", "Sing",
+    "Secret", "Life", "Pets", "Rio", "Madagascar", "Kung", "Fu", "Panda",
+    "How", "Train", "Dragon", "Shrek", "Fiona", "Dragon", "Heart",
+    "Legend", "King", "Lion", "Tarzan", "Jungle", "Book", "Peter", "Pan",
+    "Wendy", "Neverland", "Aladdin", "Jasmine", "Genie", "Robin", "Hood",
+    "Prince", "Persia", "Assassin", "Creed", "Assassin", "Brotherhood",
+    "Brother", "Sister", "Legend", "Zorro", "Phantom", "Opera", "Ghost",
+    "Mummy", "Scorpion", "Kingdom", "Sword", "Dragon", "Quest", "Narnia",
+    "Prince", "Casablanca", "Godfather", "Pulp", "Fiction", "Reservoir",
+    "Dogs", "Kill", "Bill", "Inglorious", "Basterds", "Django", "Unchained",
+    "Shining", "Carrie", "IT", "Saw", "Halloween", "Friday", "13th",
+    "Nightmare", "Elm", "Street", "Conjuring", "Annabelle", "Insidious",
+    "Paranormal", "Activity", "Exorcist", "Ring", "Rings", "Sinister",
+    "Hereditary", "Get", "Out", "Us", "Midsommar", "It", "Chapter", "Two",
+    "Doctor", "Sleep", "Crawl", "A Quiet Place", "Birdbox", "Maze", "Runner",
+    "Death", "Race", "Escape", "Plan", "Safe", "House", "Red", "Notice",
+    "Ocean", "Thirteen", "Twelve", "Eleven", "Thirteen", "Dawn", "Planet",
+    "Apes", "War", "Rise", "Revenge", "King", "Arthur", "Excalibur",
+    "Merlin", "Camelot", "Quest", "Holy", "Grail", "Hobbit", "Smaug"
+]
+
+
+# ---------------------------
+# FUNKCJA POBIERANIA FILMU
+# ---------------------------
+def fetch_movie_data(title):
+    url = f"http://www.omdbapi.com/?t={title}&apikey={OMDB_API_KEY}&plot=short"
+    try:
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("Response") == "True":
+                # Pobranie pierwszego gatunku
+                genre = data.get("Genre")
+                if genre:
+                    genre = genre.split(",")[0].strip()  # tylko pierwszy gatunek
+                else:
+                    genre = random.choice(["Akcja", "Dramat", "Komedia", "Sci-Fi", "Horror"])
+
+                return {
+                    "tytul": truncate(data.get("Title"), MAX_LEN["tytul"]),
+                    "gatunek": truncate(genre, MAX_LEN["gatunek"]),
+                    "rok": int(data.get("Year", 2000)) if data.get("Year") and data.get("Year").isdigit() else random.randint(1985,2024),
+                    "rezyser": truncate(data.get("Director"), MAX_LEN["rezyser"]),
+                    "opis": truncate(data.get("Plot"), MAX_LEN["opis"]),
+                    "plakat": truncate(data.get("Poster"), MAX_LEN["plakat"])
+                }
+    except requests.RequestException:
+        pass  # jeśli błąd sieciowy, przechodzimy dalej
+
+    # fallback jeśli brak danych z OMDB
+    return {
+        "tytul": truncate(title, MAX_LEN["tytul"]),
+        "gatunek": truncate(random.choice(["Akcja", "Dramat", "Komedia", "Sci-Fi", "Horror"]), MAX_LEN["gatunek"]),
+        "rok": random.randint(1985, 2024),
+        "rezyser": truncate(fake.name(), MAX_LEN["rezyser"]),
+        "opis": truncate(fake.text(max_nb_chars=200), MAX_LEN["opis"]),
+        "plakat": None
+    }
+
+# ---------------------------
+# GENEROWANIE FILMÓW
+# ---------------------------
+movies = []
+existing_titles = set()
+term_index = 0  # indeks do przechodzenia przez SEARCH_TERMS
+
+while len(movies) < NUM_MOVIES:
+    term = SEARCH_TERMS[term_index]
+    data = fetch_movie_data(term)
+
+    if data["tytul"] not in existing_titles:
+        movies.append((
+            data["tytul"], data["gatunek"], data["rok"],
+            data["rezyser"], data["opis"], data["plakat"]
+        ))
+        existing_titles.add(data["tytul"])
+
+    print(f"Dodano film: {data['tytul']} ({data['rok']}) - Gatunek: {data['gatunek']}")
+
+    term_index += 1
+    if term_index >= len(SEARCH_TERMS):
+        term_index = 0  # wracamy na początek listy
+# ---------------------------
+# WSTAWIANIE DO BAZY
+# ---------------------------
+
 execute_batch(cur,
-    "INSERT INTO Film (tytul, gatunek, rok_wydania, rezyser, opis) VALUES (%s,%s,%s,%s,%s)",
-    filmy
+    """
+    INSERT INTO Film (tytul, gatunek, rok_wydania, rezyser, opis, plakat)
+    VALUES (%s,%s,%s,%s,%s,%s)
+    """,
+    movies
 )
 
+print(f"Wstawiono {len(movies)} unikalnych filmów do bazy.")
 # ---------------------------
 # EGZEMPLARZE
 # ---------------------------
+NUM_FILMOW = len(movies)  # liczba faktycznie wstawionych filmów
+
 egzemplarze = []
 for _ in range(10000):
     r = random.random()
@@ -132,7 +238,9 @@ for _ in range(10000):
         status = 'dostępny'
     else:
         status = 'wypożyczony'
-    egzemplarze.append((status, random.randint(1, 2000), random.randint(1, 10)))
+    id_filmu = random.randint(1, NUM_FILMOW)
+    id_filii = random.randint(1, 10)
+    egzemplarze.append((status, id_filmu, id_filii))
 execute_batch(cur,
     "INSERT INTO Egzemplarz (status, id_filmu, id_filii) VALUES (%s,%s,%s)",
     egzemplarze
@@ -186,8 +294,8 @@ execute_batch(cur,
 # ---------------------------
 # WYPOŻYCZENIE ↔ EGZEMPLARZ
 # ---------------------------
-we = []
-zajete_egzemplarze = set()
+we = []  # lista powiązań wypożyczenie ↔ egzemplarz
+zajete_egzemplarze = set()  # żeby nie przypisać tego samego egzemplarza kilka razy
 
 for i, wyp in enumerate(wypozyczenia, start=1):
     start, termin, zwrot, id_pracownika, id_klienta, filia_wyp = wyp
@@ -282,7 +390,7 @@ execute_batch(cur,
 rezerwacje = []
 rezerwacja_egz = []
 
-
+# Lista klientów do rezerwacji (np. pierwsi 2000)
 klienci_do_rezerwacji = list(range(1, 2001))
 
 # Mapa filia -> egzemplarze dostępne
@@ -309,8 +417,8 @@ for _ in range(1000):  # generujemy 1000 rezerwacji
     data_rezerwacji = fake.date_between(start_date="-30d", end_date="today")
     termin_odbioru = data_rezerwacji + timedelta(days=random.randint(3, 7))
 
-    # Dodanie do listy rezerwacji
-    rezerwacje.append((data_rezerwacji, termin_odbioru, 'AKTYWNA', id_klienta))
+    # Dodanie do listy rezerwacji z id_filii
+    rezerwacje.append((data_rezerwacji, termin_odbioru, 'AKTYWNA', id_klienta, filia_id))
 
     # Dodanie do tabeli pośredniej
     for egz_id in wybrane_egz:
@@ -323,12 +431,14 @@ for _ in range(1000):  # generujemy 1000 rezerwacji
 
 # Wstawienie danych do bazy
 execute_batch(cur,
-              "INSERT INTO Rezerwacja (data_rezerwacji, termin_odbioru, status, id_klienta) VALUES (%s,%s,%s,%s)",
+              "INSERT INTO Rezerwacja (data_rezerwacji, termin_odbioru, status, id_klienta, id_filii) VALUES (%s,%s,%s,%s,%s)",
               rezerwacje)
 
 execute_batch(cur,
               "INSERT INTO Rezerwacja_Egzemplarz (id_rezerwacji, id_egzemplarza) VALUES (%s,%s)",
               rezerwacja_egz)
+
+print(f"✅ Wstawiono {len(rezerwacje)} rezerwacji i {len(rezerwacja_egz)} powiązań Rezerwacja_Egzemplarz")
 
 
 
@@ -339,4 +449,4 @@ conn.commit()
 cur.close()
 conn.close()
 
-print("✅ Dane testowe wygenerowane realistycznie")
+print("✅ Dane testowe wygenerowane")
